@@ -36,59 +36,49 @@ function parseWhois(dadosBrutos, dominio) {
     };
   }
 
-  // Detecta se é CPF ou CNPJ
-  const matchCnpj = dadosBrutos.match(/nic-br-registered-id:\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/i);
-  const matchCpf = dadosBrutos.match(/nic-br-registered-id:\s*([\d\.\-\*\/]+)/i);
+  // Campo real do registro.br: "ownerid:" contém CPF ou CNPJ do titular
+  const matchOwnerid = dadosBrutos.match(/^ownerid:\s*([^\r\n]+)/im);
+  const ownerid = matchOwnerid ? matchOwnerid[1].trim() : null;
 
-  // Extrai email (pode estar mascarado por LGPD)
-  const matchEmail = dadosBrutos.match(/e-mail:\s*([^\s\n]+)/i);
+  // Detecta CNPJ (contém barra) ou CPF
+  const ehCnpj = ownerid && /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(ownerid);
+  const ehCpf  = ownerid && !ehCnpj;
+
+  // Extrai email — primeiro e-mail encontrado (bloco de contato)
+  const matchEmail = dadosBrutos.match(/^e-mail:\s*([^\s\r\n]+)/im);
   const email = matchEmail ? matchEmail[1].trim() : null;
 
-  // Extrai nome do responsável — registro.br usa "owner:", "responsible:" ou "person:"
-  const matchNome = dadosBrutos.match(/(?:responsible|owner|person):\s*(.+)/i);
-  const nome = matchNome ? matchNome[1].trim() : null;
+  // Extrai nome da empresa (^owner: exclui owner-c:) e nome do contato (person:)
+  const matchOwner  = dadosBrutos.match(/^owner:\s*([^\r\n]+)/im);
+  const matchPerson = dadosBrutos.match(/^person:\s*([^\r\n]+)/im);
+  const nomeEmpresa = matchOwner  ? matchOwner[1].trim()  : null;
+  const nomePessoa  = matchPerson ? matchPerson[1].trim() : null;
+  const nome        = nomePessoa || nomeEmpresa;
 
   // Extrai telefone
-  const matchTelefone = dadosBrutos.match(/phone:\s*(.+)/i);
+  const matchTelefone = dadosBrutos.match(/^phone:\s*([^\r\n]+)/im);
   const telefone = matchTelefone ? matchTelefone[1].trim() : null;
 
-  if (matchCnpj) {
-    // Domínio registrado por empresa (CNPJ)
+  if (ehCnpj) {
     return {
       sucesso: true,
       dominio,
       tipo: 'CNPJ',
-      cnpj: matchCnpj[1],
+      cnpj: ownerid,
       nome,
+      nomeEmpresa,
       email,
-      telefone,
-      dadosBrutos: dadosBrutos.substring(0, 2000) // Limitado para não sobrecarregar
+      telefone
     };
-  } else if (matchCpf) {
-    // Domínio registrado por pessoa física (CPF)
-    const cpfValor = matchCpf[1];
-    const cpfMascarado = cpfValor.includes('*');
-
-    if (cpfMascarado || !email) {
-      return {
-        sucesso: true,
-        dominio,
-        tipo: 'CPF',
-        cpf: cpfValor, // valor mascarado ex: ***.456.789-**
-        cpfMascarado: true,
-        aviso: 'Dados mascarados pela LGPD — dados pessoais não disponíveis publicamente',
-        nome,
-        email,
-        telefone
-      };
-    }
-
+  } else if (ehCpf) {
+    const cpfMascarado = ownerid.includes('*');
     return {
       sucesso: true,
       dominio,
       tipo: 'CPF',
-      cpf: cpfValor,
-      cpfMascarado: false,
+      cpf: ownerid,
+      cpfMascarado,
+      aviso: cpfMascarado ? 'Dados mascarados pela LGPD' : null,
       nome,
       email,
       telefone
@@ -97,7 +87,7 @@ function parseWhois(dadosBrutos, dominio) {
     return {
       sucesso: false,
       dominio,
-      erro: 'Não foi possível identificar CPF ou CNPJ nos dados do WHOIS',
+      erro: 'Campo ownerid não encontrado no WHOIS',
       dadosParciais: dadosBrutos.substring(0, 500)
     };
   }

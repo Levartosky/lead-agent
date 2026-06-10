@@ -2,11 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path    = require('path');
 const { executarAgente } = require('./agent');
-
-if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui') {
-  console.error('\n❌ ANTHROPIC_API_KEY não configurada no .env\n');
-  process.exit(1);
-}
+const { executarRPA }    = require('./rpa');
 
 const app = express();
 app.use(express.json());
@@ -15,9 +11,9 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Sessões ativas: guardam eventos emitidos e clientes SSE conectados
 const sessoes = new Map();
 
-/* ── POST /api/iniciar ── inicia o agente e retorna sessionId */
+/* ── POST /api/iniciar ── inicia o agente ou RPA e retorna sessionId */
 app.post('/api/iniciar', (req, res) => {
-  const { nicho, regiao, quantidade } = req.body;
+  const { nicho, regiao, quantidade, modo = 'agente' } = req.body;
 
   if (!nicho?.trim() || !regiao?.trim() || !quantidade) {
     return res.status(400).json({ erro: 'Preencha todos os campos.' });
@@ -28,12 +24,15 @@ app.post('/api/iniciar', (req, res) => {
     return res.status(400).json({ erro: 'Quantidade deve ser entre 1 e 50.' });
   }
 
+  if (modo === 'agente' && (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui')) {
+    return res.status(400).json({ erro: 'ANTHROPIC_API_KEY não configurada no .env — use o modo RPA.' });
+  }
+
   const sessionId = `s_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   sessoes.set(sessionId, { eventos: [], clientes: new Set(), arquivo: null });
 
   res.json({ sessionId });
 
-  // Emite evento para todos os clientes SSE da sessão + armazena no buffer
   const emit = (tipo, dados) => {
     const sessao = sessoes.get(sessionId);
     if (!sessao) return;
@@ -43,8 +42,9 @@ app.post('/api/iniciar', (req, res) => {
     sessao.clientes.forEach(c => { try { c.write(payload); } catch {} });
   };
 
-  // Roda o agente de forma assíncrona
-  executarAgente(nicho.trim(), regiao.trim(), qty, emit)
+  const executor = modo === 'rpa' ? executarRPA : executarAgente;
+
+  executor(nicho.trim(), regiao.trim(), qty, emit)
     .then(resultado => {
       const sessao = sessoes.get(sessionId);
       if (sessao && resultado?.arquivo) sessao.arquivo = resultado.arquivo;
