@@ -118,7 +118,13 @@ Só entram no banco estabelecimentos **ativos** (situação 02) **com email vál
 
 ### Sinônimos de nicho
 
-Mapa em [src/tools/receita.js](src/tools/receita.js) traduz termo coloquial → raiz que aparece na descrição do CNAE: `dentista→ODONTOL`, `médico→MEDIC`, `advogado→ADVOCA`, `contador→CONTAB`, `academia→CONDICIONAMENTO FISICO`, `farmácia→FARMAC`, etc. Todos os 18 sinônimos foram **validados contra o banco** em 2026-07-13. Além disso há um stemming simples (corta 2 chars finais de palavras > 6 letras).
+Dicionário extraído para [src/config/sinonimos-cnae.js](src/config/sinonimos-cnae.js) (história 3.3, 2026-07-15) — antes vivia inline em `receita.js`. Traduz termo coloquial → raiz que aparece na descrição do CNAE: `dentista→ODONTOL`, `médico→MEDIC`, `advogado→ADVOCA`, `contador→CONTAB`, `academia→CONDICIONAMENTO FISICO`, `farmácia→FARMAC`, etc. Além disso há um stemming simples (corta 2 chars finais de palavras > 6 letras) e sugestão de termos parecidos via distância de Levenshtein quando nenhum CNAE bate.
+
+O arquivo é dividido em dois grupos:
+- `SINONIMOS_VALIDADOS` — os 18 originais, **validados contra o banco** em 2026-07-13.
+- `SINONIMOS_NOVOS_PENDENTE_VALIDACAO` — mais 34 nichos (petshop, salão de beleza, imobiliária, restaurante, oficina, escola, transportadora, hotel, construtora, seguros, ótica, joalheria, gráfica, etc.), mapeados a partir da nomenclatura oficial do CNAE 2.3, mas **ainda não conferidos linha a linha contra `receita.db`** (banco indisponível no momento da expansão). Rodar `npm run validar-sinonimos` numa máquina com o banco antes de considerar a história 3.3 encerrada — o script reporta qualquer raiz sem correspondência.
+
+Testes automatizados em `test/sinonimos-cnae.test.js` e `test/receita-matching.test.js` (`npm test`, Node test runner nativo, sem dependência nova) cobrem a integridade do dicionário e a lógica pura de matching/sugestão.
 
 ### Importação (já feita — não precisa rodar de novo)
 

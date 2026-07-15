@@ -1,39 +1,8 @@
 const Database = require('better-sqlite3');
 const path     = require('path');
+const { SINONIMOS } = require('../config/sinonimos-cnae');
 
 const DB_PATH = path.join(__dirname, '../../data/receita.db');
-
-// Sinônimos: termo coloquial → raiz que aparece nos CNAEs
-const SINONIMOS = {
-  DENTISTA:       'ODONTOL',
-  DENTISTAS:      'ODONTOL',
-  DENTAL:         'ODONTOL',
-  ODONTOLOGO:     'ODONTOL',
-  MEDICO:         'MEDIC',
-  MEDICOS:        'MEDIC',
-  HOSPITAL:       'HOSPIT',
-  CLINICA:        'CLINIC',
-  ADVOGADO:       'ADVOCA',
-  ADVOGADOS:      'ADVOCA',
-  ADVOCACIA:      'ADVOCA',
-  CONTADOR:       'CONTAB',
-  CONTABILIDADE:  'CONTAB',
-  ACADEMIA:       'CONDICIONAMENTO FISICO',
-  ACADEMIAS:      'CONDICIONAMENTO FISICO',
-  FARMACIA:       'FARMAC',
-  SUPERMERCADO:   'SUPERM',
-  PADARIA:        'PADARI',
-  MECANICO:       'MANUTENC',
-  ELETRICISTA:    'ELETRIC',
-  ENGENHEIRO:     'ENGENH',
-  ARQUITETO:      'ARQUIT',
-  PSICÓLOGO:      'PSICOL',
-  PSICOLOGO:      'PSICOL',
-  NUTRICIONISTA:  'NUTRIC',
-  FISIOTERAPEUTA: 'FISIOTE',
-  VETERINARIO:    'VETERIN',
-  VETERINÁRIA:    'VETERIN',
-};
 
 function normalizar(str) {
   return String(str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
@@ -57,6 +26,36 @@ function expandirTermos(nicho) {
   return [...set];
 }
 
+function distanciaLevenshtein(a, b) {
+  const linhas = a.length + 1;
+  const colunas = b.length + 1;
+  const dp = Array.from({ length: linhas }, () => new Array(colunas).fill(0));
+  for (let i = 0; i < linhas; i++) dp[i][0] = i;
+  for (let j = 0; j < colunas; j++) dp[0][j] = j;
+  for (let i = 1; i < linhas; i++) {
+    for (let j = 1; j < colunas; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[linhas - 1][colunas - 1];
+}
+
+// Sugere os nichos conhecidos mais próximos do termo digitado, para o caso de
+// erro de digitação ou nicho fora do dicionário (ex: "dentsta" → "dentista").
+function sugerirTermos(nicho, limite = 3) {
+  const alvo = normalizar(nicho).split(/\s+/)[0] || '';
+  if (!alvo) return [];
+
+  const chaves = Object.keys(SINONIMOS);
+  return chaves
+    .map(chave => ({ chave, dist: distanciaLevenshtein(alvo, chave) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, limite)
+    .map(({ chave }) => chave.charAt(0) + chave.slice(1).toLowerCase());
+}
+
 function buscarLeadsReceita(nicho, regiao, quantidade) {
   const db = new Database(DB_PATH, { readonly: true });
 
@@ -68,9 +67,13 @@ function buscarLeadsReceita(nicho, regiao, quantidade) {
       .map(c => c.codigo);
 
     if (cnaeCodigos.length === 0) {
+      const sugestoes = sugerirTermos(nicho);
+      const dica = sugestoes.length
+        ? `Você quis dizer: ${sugestoes.join(', ')}?`
+        : 'Tente: odontologia, restaurante, contábil, engenharia, farmácia...';
       return {
         sucesso: false,
-        mensagem: `Nenhum CNAE encontrado para "${nicho}". Tente: odontologia, restaurante, contábil, engenharia, farmácia...`,
+        mensagem: `Nenhum CNAE encontrado para "${nicho}". ${dica}`,
       };
     }
 
@@ -138,4 +141,4 @@ function buscarLeadsReceita(nicho, regiao, quantidade) {
   }
 }
 
-module.exports = { buscarLeadsReceita };
+module.exports = { buscarLeadsReceita, expandirTermos, sugerirTermos, normalizar };

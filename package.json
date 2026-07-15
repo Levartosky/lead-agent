@@ -10,7 +10,9 @@
     "gemini": "node src/index-gemini.js",
     "web:gemini": "node src/server-gemini.js",
     "rpa": "node src/index-rpa.js",
-    "importar-receita": "node src/scripts/importar-receita.js"
+    "importar-receita": "node src/scripts/importar-receita.js",
+    "validar-sinonimos": "node src/scripts/validar-sinonimos.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
