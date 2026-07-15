@@ -1,15 +1,62 @@
 # Lead Agent AI
 
-Agente de geração de leads B2B no Brasil com inteligência artificial. Busca empresas por nicho e região, consulta WHOIS e CNPJ automaticamente e exporta os dados em planilha Excel.
+Gerador de leads B2B no Brasil. Busca empresas por **nicho** e **região** e exporta uma **planilha Excel** com email, telefone e CNPJ de cada lead.
 
-Suporta dois modelos de IA:
-- **Claude (Anthropic)** — pago, mais preciso
-- **Gemini (Google)** — gratuito
+O projeto tem três motores de busca:
 
-Cada modelo pode ser usado de duas formas: pelo **terminal** ou pela **interface web** no navegador.
+| Motor | Status | Como funciona |
+|---|---|---|
+| ⭐ **Receita Federal** | **Padrão (use este)** | Base local com dados abertos de CNPJ da RFB — instantâneo, sem chave de API, até 1000 leads por busca |
+| Agente IA (Claude/Gemini) | Legado, oculto na interface | LLM orquestra Maps + WHOIS + CNPJ — precisa de chave de API |
+| RPA | Legado, oculto na interface | Scraping do Google Maps + WHOIS — lento, sem chave |
 
-## Como usar a interface web
+---
+
+## ⭐ INÍCIO RÁPIDO — Motor Receita Federal (comece por aqui)
+
+> **Este é o guia para colocar o gerador de leads para rodar.** O motor Receita Federal **não precisa de nenhuma chave de API nem arquivo `.env`** — só do Node.js e do banco de dados.
+
+### Passo 1 — Instalar o Node.js
+Baixe a versão **LTS** em https://nodejs.org e instale normalmente.
+
+### Passo 2 — Clonar o projeto e instalar dependências
+```bash
+git clone https://github.com/kintekIT/lead-agent.git
+cd lead-agent
+npm install
+```
+
+### Passo 3 — Baixar o banco de dados `receita.db`
+O banco (≈10,7 GB) **não vem no clone** do git. Baixe pelo Google Drive:
+
+> 📥 **Link do banco no Drive:** `[ADICIONAR LINK DO DRIVE AQUI]`
+
+Depois de baixar (e extrair, se vier compactado), coloque o arquivo em:
+```
+lead-agent/data/receita.db
+```
+(crie a pasta `data` na raiz do projeto se ela não existir)
+
+### Passo 4 — Rodar
+```bash
 npm run web
+```
+Abra o navegador em **http://localhost:3000** — o modo **Receita Federal** já vem selecionado.
+
+### Passo 5 — Buscar leads
+1. Preencha **Nicho** (ex: `dentista`, `academia`, `advogado`), **Região** (ex: `São Paulo SP`) e **Quantidade** (1 a 1000)
+2. Clique em **Iniciar Busca** — o resultado é praticamente instantâneo
+3. Clique em **Baixar Planilha Excel** ao final
+
+As planilhas ficam salvas na pasta `leads/` do projeto.
+
+**Alternativa sem o Drive:** é possível gerar o banco localmente baixando os ZIPs dos [dados abertos de CNPJ da RFB](https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/) e rodando `npm run importar-receita "C:\pasta\dos\zips"` — mas demora bastante; o Drive é o caminho recomendado.
+
+---
+
+## Modos legados (Agente IA e RPA)
+
+Tudo abaixo desta linha se refere aos motores antigos, que continuam funcionando mas estão **ocultos na interface**. Só siga adiante se for usá-los — eles exigem chaves de API.
 
 ---
 
@@ -160,7 +207,7 @@ Depois abra o navegador em: **http://localhost:3001**
 3. Preencha os campos:
    - **Nicho / Segmento**: o tipo de empresa que quer encontrar (ex: `escola`, `dentista`, `mecânico`)
    - **Região**: cidade e estado (ex: `Curitiba PR`, `Rio de Janeiro RJ`)
-   - **Quantidade**: entre 1 e 50 leads
+   - **Quantidade**: entre 1 e 1000 leads
 4. Clique em **Iniciar Busca**
 5. Acompanhe o progresso em tempo real no painel de atividade
 6. Quando concluir, clique em **Baixar Planilha Excel**
@@ -184,22 +231,31 @@ leads/leads_dentista_sao_paulo_sp_2026-05-26T14-30-00.xlsx
 ```
 lead-agent/
 ├── src/
-│   ├── index.js          # Entrada — Claude via terminal
-│   ├── index-gemini.js   # Entrada — Gemini via terminal
-│   ├── server.js         # Servidor web — Claude
-│   ├── server-gemini.js  # Servidor web — Gemini
-│   ├── agent.js          # Lógica do agente Claude
-│   ├── agent-gemini.js   # Lógica do agente Gemini
+│   ├── server.js              # Servidor web (porta 3000) — roteia os 3 motores
+│   ├── executor-receita.js    # ⭐ Motor Receita Federal (orquestração)
+│   ├── rpa.js                 # Motor RPA
+│   ├── agent.js               # Motor Agente IA — Claude
+│   ├── agent-gemini.js        # Motor Agente IA — Gemini
+│   ├── index.js               # Entrada — Claude via terminal
+│   ├── index-gemini.js        # Entrada — Gemini via terminal
+│   ├── server-gemini.js       # Servidor web — Gemini (porta 3001)
+│   ├── scripts/
+│   │   └── importar-receita.js  # ⭐ Importa os ZIPs da RFB → data/receita.db
 │   ├── tools/
-│   │   ├── cnpj.js       # Consulta CNPJ via API pública
-│   │   ├── leads.js      # Gerenciamento e exportação dos leads
-│   │   └── whois.js      # Consulta WHOIS no registro.br
+│   │   ├── receita.js         # ⭐ Consulta ao banco da Receita (CNAE + município)
+│   │   ├── maps.js            # Scraping Google Maps (Playwright)
+│   │   ├── cnpj.js            # Consulta CNPJ via API pública
+│   │   ├── leads.js           # Gerenciamento e exportação dos leads
+│   │   └── whois.js           # Consulta WHOIS no registro.br
 │   └── utils/
-│       └── excel.js      # Geração da planilha Excel
+│       ├── excel.js           # Geração da planilha Excel
+│       └── historico.js       # Dedup de domínios entre execuções (RPA)
 ├── public/
-│   └── index.html        # Interface web (HTML/CSS/JS)
-├── leads/                # Planilhas geradas (criada automaticamente)
-├── .env                  # Suas chaves de API (NÃO versionar)
+│   └── index.html             # Interface web (HTML/CSS/JS)
+├── data/
+│   └── receita.db             # ⭐ Banco da Receita (≈10,7 GB — baixar do Drive, NÃO versionado)
+├── leads/                     # Planilhas geradas (criada automaticamente)
+├── .env                       # Chaves de API — só p/ modos legados (NÃO versionar)
 ├── .gitignore
 └── package.json
 ```
@@ -207,6 +263,9 @@ lead-agent/
 ---
 
 ## Solução de problemas comuns
+
+**Erro ao buscar no modo Receita Federal / `unable to open database file`**  
+O arquivo `data/receita.db` não está no lugar. Confira se ele existe exatamente em `lead-agent/data/receita.db` (veja o Passo 3 do Início Rápido). Se baixou compactado do Drive, extraia antes.
 
 **Erro: `ANTHROPIC_API_KEY não configurada`**  
 O arquivo `.env` não existe ou a chave está como `sua_chave_aqui`. Crie o arquivo e cole a chave real.
