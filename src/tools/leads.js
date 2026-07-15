@@ -17,7 +17,10 @@ function criarGerenciadorLeads() {
       telefone:     dados.telefone       || '',
       dominio:      dados.dominio        || '',
       tipoRegistro: dados.tipo_registro  || '',
-      cpfCnpj:      dados.cpf_cnpj       || ''
+      cpfCnpj:      dados.cpf_cnpj       || '',
+      atividade:    dados.atividade      || '',
+      cidade:       dados.cidade         || '',
+      endereco:     dados.endereco       || ''
     };
 
     leads.push(lead);

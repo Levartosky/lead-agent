@@ -1,5 +1,5 @@
-const { buscarLeadsReceita }             = require('./tools/receita');
-const { criarGerenciadorLeads }           = require('./tools/leads');
+const { buscarLeadsReceita, formatarEndereco } = require('./tools/receita');
+const { criarGerenciadorLeads }                = require('./tools/leads');
 
 async function executarReceita(nicho, regiao, quantidade, onEvento = null) {
   const emit = (tipo, dados) => { if (onEvento) onEvento(tipo, dados); };
@@ -15,8 +15,9 @@ async function executarReceita(nicho, regiao, quantidade, onEvento = null) {
     return { sucesso: false, mensagem: resultado.mensagem };
   }
 
-  const { leads, cnaesUsados } = resultado;
+  const { leads, cnaesUsados, avisos } = resultado;
   emit('log', { mensagem: `${leads.length} estabelecimento(s) encontrado(s) — ${cnaesUsados} CNAE(s) mapeado(s)` });
+  for (const aviso of avisos || []) emit('log', { mensagem: `⚠️ ${aviso}` });
 
   const { salvarLead, finalizarLeads } = criarGerenciadorLeads();
 
@@ -29,6 +30,9 @@ async function executarReceita(nicho, regiao, quantidade, onEvento = null) {
       dominio:       null,
       tipo_registro: 'CNPJ',
       cpf_cnpj:      e.cnpj,
+      atividade:     e.atividade || null,
+      cidade:        e.municipio || null,
+      endereco:      formatarEndereco(e) || null,
     });
 
     if (r.sucesso) {
@@ -43,6 +47,9 @@ async function executarReceita(nicho, regiao, quantidade, onEvento = null) {
         dominio:      null,
         tipoRegistro: 'CNPJ',
         cpfCnpj:      lead.cpfCnpj,
+        atividade:    lead.atividade,
+        cidade:       lead.cidade,
+        endereco:     lead.endereco,
       });
     }
   }

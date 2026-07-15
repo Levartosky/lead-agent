@@ -12,6 +12,7 @@
     "rpa": "node src/index-rpa.js",
     "importar-receita": "node src/scripts/importar-receita.js",
     "validar-sinonimos": "node src/scripts/validar-sinonimos.js",
+    "detectar-emails-genericos": "node src/scripts/detectar-emails-genericos.js",
     "test": "node --test"
   },
   "dependencies": {

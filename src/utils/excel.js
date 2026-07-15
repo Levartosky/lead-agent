@@ -29,7 +29,10 @@ async function gerarExcel(leads, nicho, regiao) {
     { header: 'Telefone',       key: 'telefone',     width: 22 },
     { header: 'CPF / CNPJ',     key: 'cpfCnpj',      width: 22 },
     { header: 'Domínio',        key: 'dominio',      width: 32 },
-    { header: 'Tipo Registro',  key: 'tipoRegistro', width: 16 }
+    { header: 'Tipo Registro',  key: 'tipoRegistro', width: 16 },
+    { header: 'CNAE/Atividade', key: 'atividade',    width: 42 },
+    { header: 'Cidade',         key: 'cidade',       width: 24 },
+    { header: 'Endereço',       key: 'endereco',     width: 42 }
   ];
 
   // Estilo do cabeçalho
@@ -53,7 +56,10 @@ async function gerarExcel(leads, nicho, regiao) {
     (l)    => na(l.telefone),
     (l)    => na(l.cpfCnpj),
     (l)    => na(l.dominio),
-    (l)    => na(l.tipoRegistro)
+    (l)    => na(l.tipoRegistro),
+    (l)    => na(l.atividade),
+    (l)    => na(l.cidade),
+    (l)    => na(l.endereco)
   ];
 
   // Linha de dados — atribuição direta por índice de coluna (evita quirks do addRow)

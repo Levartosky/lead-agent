@@ -69,9 +69,13 @@ lead-agent/
 │   ├── index*.js              # Entradas via terminal (start / gemini / rpa)
 │   ├── server-gemini.js       # Servidor web Gemini (porta 3001)
 │   ├── scripts/
-│   │   └── importar-receita.js  # ⭐ Importa ZIPs da RFB → data/receita.db
+│   │   ├── importar-receita.js          # ⭐ Importa ZIPs da RFB → data/receita.db
+│   │   ├── validar-sinonimos.js         # Confere dicionário de nichos contra o banco real
+│   │   └── detectar-emails-genericos.js # Gera tabela emails_genericos (filtro de qualidade)
+│   ├── config/
+│   │   └── sinonimos-cnae.js  # Dicionário nicho → raiz de CNAE (18 validados + 34 pendentes)
 │   ├── tools/
-│   │   ├── receita.js         # ⭐ Query SQLite: sinônimos + CNAE + município
+│   │   ├── receita.js         # ⭐ Query SQLite: sinônimos + CNAE + município + filtros de qualidade
 │   │   ├── maps.js            # Scraping Google Maps (Playwright + stealth)
 │   │   ├── whois.js           # WHOIS registro.br
 │   │   ├── cnpj.js            # API pública cnpj.ws
@@ -115,6 +119,19 @@ Só entram no banco estabelecimentos **ativos** (situação 02) **com email vál
 - O JOIN em [src/tools/receita.js](src/tools/receita.js) compensa: `ON em.cnpj_basico = '"' || e.cnpj_basico || '"'`.
 - `municipios.nome` também tem aspas; o SELECT usa `REPLACE()` para limpar.
 - `estabelecimentos.municipio` guarda o **nome** da cidade (não o código), limpo, MAIÚSCULO e sem acentos.
+- `cnaes.descricao` **pode vir com aspas** (o importador só faz `.trim()`, não remove aspas como faz para os outros campos) — por isso o SELECT de atividade também usa `REPLACE()`.
+- `estabelecimentos.matriz` é `INTEGER`: `1` = matriz, `2` = filial (confirmado em `importar-receita.js`, linha ~329).
+
+### Qualidade dos resultados (história 3.4, 2026-07-15)
+
+`buscarLeadsReceita` agora aplica três filtros de qualidade na query principal:
+- **Somente matriz**: `AND e.matriz = 1` — evita filiais duplicando a mesma empresa na planilha.
+- **Telefone-lixo**: função pura `ehTelefoneValido()` registrada como UDF do SQLite (`db.function('telefone_valido', ...)`) — descarta números onde o assinante (dígitos após o DDD) é o mesmo dígito repetido (`9999-9999`, `0000-0000` etc).
+- **Email genérico** (ex.: email de escritório de contabilidade repetido em centenas de CNPJs de clientes): filtrado via `NOT IN (SELECT email FROM emails_genericos)`, mas **só se essa tabela já existir** — ela é gerada por [src/scripts/detectar-emails-genericos.js](src/scripts/detectar-emails-genericos.js) (`npm run detectar-emails-genericos`), que precisa ser rodado contra o banco real (varre as 23,9M linhas de `estabelecimentos`). Se a tabela não existir, a busca segue normalmente e retorna um aviso em `resultado.avisos` (propagado pro SSE como `log`).
+
+Planilha ganhou 3 colunas novas (sempre no fim, pra não deslocar índices de formatação existentes): **CNAE/Atividade**, **Cidade**, **Endereço** (este último montado por `formatarEndereco()` a partir de logradouro/número/bairro/CEP).
+
+Tudo isso foi testado de ponta a ponta com um banco SQLite fake (schema idêntico, sem dados reais) antes do commit — ver `test/qualidade-resultados.test.js` para os testes permanentes das funções puras.
 
 ### Sinônimos de nicho
 
