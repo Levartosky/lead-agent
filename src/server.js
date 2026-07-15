@@ -1,8 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const path    = require('path');
-const { executarAgente } = require('./agent');
-const { executarRPA }    = require('./rpa');
+const { executarAgente }  = require('./agent');
+const { executarRPA }     = require('./rpa');
+const { executarReceita } = require('./executor-receita');
 
 const app = express();
 app.use(express.json());
@@ -20,8 +21,8 @@ app.post('/api/iniciar', (req, res) => {
   }
 
   const qty = parseInt(quantidade, 10);
-  if (isNaN(qty) || qty < 1 || qty > 50) {
-    return res.status(400).json({ erro: 'Quantidade deve ser entre 1 e 50.' });
+  if (isNaN(qty) || qty < 1 || qty > 1000) {
+    return res.status(400).json({ erro: 'Quantidade deve ser entre 1 e 1000.' });
   }
 
   if (modo === 'agente' && (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui')) {
@@ -42,7 +43,9 @@ app.post('/api/iniciar', (req, res) => {
     sessao.clientes.forEach(c => { try { c.write(payload); } catch {} });
   };
 
-  const executor = modo === 'rpa' ? executarRPA : executarAgente;
+  const executor = modo === 'receita' ? executarReceita
+                 : modo === 'rpa'     ? executarRPA
+                 : executarAgente;
 
   executor(nicho.trim(), regiao.trim(), qty, emit)
     .then(resultado => {

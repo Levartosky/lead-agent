@@ -1,135 +1,233 @@
 const { chromium } = require('playwright');
 
-// Pausa aleatória entre min e max ms — evita padrão de tempo fixo
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_3_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+];
+
 function pausa(min, max) {
   const ms = Math.floor(Math.random() * (max - min + 1)) + min;
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Gera variações da query para superar o limite de ~200 resultados por busca no Maps
+function gerarVariacoesQuery(nicho, regiao, quantidade) {
+  const vars = [
+    `${nicho} ${regiao}`,
+    `${nicho} em ${regiao}`,
+    `empresa ${nicho} ${regiao}`,
+    `${nicho} profissional ${regiao}`,
+    `${nicho} ${regiao} centro`,
+    `${nicho} zona norte ${regiao}`,
+    `${nicho} zona sul ${regiao}`,
+    `${nicho} zona leste ${regiao}`,
+    `${nicho} zona oeste ${regiao}`,
+    `${nicho} ${regiao} serviços`,
+    `${nicho} ${regiao} LTDA`,
+    `${nicho} ${regiao} MEI`,
+  ];
+  // Cada busca rende ~150-200 resultados; pool precisa de ~8x a meta final
+  const needed = Math.max(3, Math.ceil((quantidade * 8) / 170));
+  return vars.slice(0, Math.min(needed, vars.length));
+}
+
+// Patcha o contexto do browser para esconder sinais de automação
+async function aplicarFurtividade(context) {
+  await context.addInitScript(() => {
+    // Principal sinal detectado pelo Google — deve ser undefined, não false
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+    // Chrome headless não tem window.chrome; navegadores reais têm
+    window.chrome = {
+      runtime: {},
+      loadTimes: () => ({}),
+      csi: () => ({}),
+      app: {},
+    };
+
+    // Plugins ausentes é um forte indicador de headless
+    const pluginData = [
+      { name: 'Chrome PDF Plugin',  filename: 'internal-pdf-viewer',           description: 'Portable Document Format' },
+      { name: 'Chrome PDF Viewer',  filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+      { name: 'Native Client',      filename: 'internal-nacl-plugin',           description: '' },
+    ];
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => {
+        const arr = pluginData.slice();
+        arr.item       = (i) => arr[i];
+        arr.namedItem  = (n) => arr.find(p => p.name === n) || null;
+        arr.refresh    = () => {};
+        return arr;
+      },
+    });
+
+    Object.defineProperty(navigator, 'languages',          { get: () => ['pt-BR', 'pt', 'en-US', 'en'] });
+    Object.defineProperty(navigator, 'platform',           { get: () => 'Win32' });
+    Object.defineProperty(navigator, 'hardwareConcurrency',{ get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory',       { get: () => 8 });
+
+    // API de permissões tem comportamento diferente em headless
+    if (navigator.permissions) {
+      const origQuery = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (params) =>
+        params.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : origQuery(params);
+    }
+  });
+}
+
 async function buscarEmpresasGoogleMaps(nicho, regiao, quantidade, onProgresso = null) {
   const emitir = (msg) => { if (onProgresso) onProgresso(msg); };
+  const queries = gerarVariacoesQuery(nicho, regiao, quantidade);
+  const meta    = quantidade * 8; // pool largo; enriquecimento filtra ~70-80%
 
-  // Viewport ligeiramente aleatório — sessões idênticas são suspeitas
   const largura = 1280 + Math.floor(Math.random() * 160);
   const altura  =  800 + Math.floor(Math.random() * 120);
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    locale: 'pt-BR',
-    viewport: { width: largura, height: altura },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--disable-blink-features=AutomationControlled', // esconde flag de automação do Chrome
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-gpu',
+      '--disable-accelerated-2d-canvas',
+      `--window-size=${largura},${altura}`,
+    ],
   });
-  const page = await context.newPage();
-  page.setDefaultTimeout(25000);
 
-  const empresas = [];
   const dominiosVistos = new Set();
-  const query = encodeURIComponent(`${nicho} ${regiao}`);
+  const empresas       = [];
+
+  emitir(`🎯 Meta: ${meta} candidatas via ${queries.length} busca(s) no Maps`);
 
   try {
-    emitir(`🗺️  Abrindo Google Maps: ${nicho} em ${regiao}`);
-    await page.goto(`https://www.google.com/maps/search/${query}`, { waitUntil: 'domcontentloaded' });
-
-    // Pausa inicial — simula tempo de leitura da página
-    await pausa(1800, 3200);
-
-    // Aceita cookies se o banner aparecer
-    try {
-      const botaoAceitar = page.locator('button:has-text("Aceitar tudo"), button:has-text("Accept all"), form[action*="consent"] button').first();
-      if (await botaoAceitar.isVisible({ timeout: 4000 })) {
-        await pausa(600, 1200); // pequena hesitação antes de clicar
-        await botaoAceitar.click();
-        await pausa(900, 1800);
-      }
-    } catch {}
-
-    // Aguarda o painel de resultados
-    await page.waitForSelector('div[role="feed"]', { timeout: 20000 });
-    await pausa(1000, 2000); // lê os resultados antes de começar a rolar
-
-    emitir('📋 Painel de resultados carregado. Coletando links...');
-
-    // Scroll offset aleatório — cada execução começa de uma posição diferente
-    // evita sempre pegar os mesmos primeiros resultados
-    const saltarResultados = Math.floor(Math.random() * 12); // pula 0–11 resultados
-    if (saltarResultados > 0) {
-      emitir(`🔀 Variando posição inicial: pulando ${saltarResultados} resultado(s)`);
-      await page.evaluate((n) => {
-        const feed = document.querySelector('div[role="feed"]');
-        if (feed) feed.scrollTop = n * 90;
-      }, saltarResultados);
-      await pausa(1200, 2000);
-    }
-
-    // Coleta um pool grande de links — o filtro de qualificação vai descartar parte deles
-    const meta      = quantidade * 5;   // empresas com site a visitar
-    const bufferUrl = quantidade * 10;  // links do feed a coletar
-    const links = await coletarLinks(page, bufferUrl, emitir);
-    emitir(`🔗 ${links.length} links coletados. Extraindo dados (meta: ${meta} empresas com site)...`);
-
-    // Visita cada link e extrai dados até atingir o pool
-    for (const link of links) {
+    for (let qi = 0; qi < queries.length; qi++) {
       if (empresas.length >= meta) break;
 
-      // Pausa entre páginas — o intervalo mais importante para não ser detectado
-      await pausa(2500, 5000);
+      const query = queries[qi];
+      emitir(`🔍 [${qi + 1}/${queries.length}] "${query}"`);
+
+      // Novo contexto por busca = nova sessão/fingerprint
+      const context = await browser.newContext({
+        locale:    'pt-BR',
+        viewport:  { width: largura + Math.floor(Math.random() * 40), height: altura + Math.floor(Math.random() * 40) },
+        userAgent: USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
+        extraHTTPHeaders: { 'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7' },
+      });
+
+      await aplicarFurtividade(context);
+
+      const page = await context.newPage();
+      page.setDefaultTimeout(25000);
 
       try {
-        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        const novas = await pesquisarNaMapa(page, query, meta - empresas.length, dominiosVistos, emitir);
+        empresas.push(...novas);
+        emitir(`📊 Acumulado: ${empresas.length} empresa(s) com site`);
+      } catch (err) {
+        emitir(`⚠️  Busca "${query}" falhou: ${err.message}`);
+      } finally {
+        await context.close();
+      }
 
-        // Simula tempo de carregamento visual antes de "ler" a página
-        await pausa(1200, 2500);
-
-        // Move o mouse para uma posição aleatória (simula olhar para a tela)
-        await page.mouse.move(
-          200 + Math.random() * 600,
-          200 + Math.random() * 300
-        );
-
-        // Nome
-        const nome = await page.locator('h1').first().textContent({ timeout: 8000 }).catch(() => null);
-        if (!nome?.trim()) continue;
-
-        // Pequena pausa antes de buscar os outros campos
-        await pausa(400, 900);
-
-        // Site
-        const websiteEl  = page.locator('a[data-item-id="authority"]');
-        const websiteHref = await websiteEl.getAttribute('href', { timeout: 5000 }).catch(() => null);
-
-        // Telefone — tenta múltiplos seletores em ordem de confiabilidade
-        const telefone = await extrairTelefone(page);
-
-        // Extrai domínio limpo
-        let dominio = null;
-        if (websiteHref) {
-          try {
-            const url = new URL(websiteHref);
-            dominio = url.hostname.replace(/^www\./, '');
-          } catch {}
-        }
-
-        if (!dominio || dominiosVistos.has(dominio)) continue;
-        dominiosVistos.add(dominio);
-
-        const empresa = { nome: nome.trim(), dominio, telefone: telefone || null };
-        empresas.push(empresa);
-        emitir(`  ✅ #${empresas.length} ${empresa.nome} — ${empresa.dominio}`);
-
-      } catch {
-        // Ignora erros individuais e segue para o próximo
+      if (qi < queries.length - 1 && empresas.length < meta) {
+        const espera = 4000 + Math.random() * 5000;
+        emitir(`⏳ Intervalo de ${Math.round(espera / 1000)}s entre buscas...`);
+        await pausa(4000, 9000);
       }
     }
-
   } finally {
     await browser.close();
+  }
+
+  emitir(`✅ Google Maps: ${empresas.length} candidata(s) coletada(s)`);
+  return empresas;
+}
+
+async function pesquisarNaMapa(page, query, alvo, dominiosVistos, emitir) {
+  const empresas    = [];
+  const encodedQuery = encodeURIComponent(query);
+
+  await page.goto(`https://www.google.com/maps/search/${encodedQuery}`, { waitUntil: 'domcontentloaded' });
+  await pausa(1800, 3200);
+
+  try {
+    const botaoAceitar = page.locator(
+      'button:has-text("Aceitar tudo"), button:has-text("Accept all"), form[action*="consent"] button'
+    ).first();
+    if (await botaoAceitar.isVisible({ timeout: 4000 })) {
+      await pausa(600, 1200);
+      await botaoAceitar.click();
+      await pausa(900, 1800);
+    }
+  } catch {}
+
+  await page.waitForSelector('div[role="feed"]', { timeout: 20000 });
+  await pausa(1000, 2000);
+
+  // Offset de scroll variável — evita sempre pegar os mesmos primeiros resultados
+  const saltarResultados = Math.floor(Math.random() * 8);
+  if (saltarResultados > 0) {
+    await page.evaluate((n) => {
+      const feed = document.querySelector('div[role="feed"]');
+      if (feed) feed.scrollTop = n * 90;
+    }, saltarResultados);
+    await pausa(1000, 1800);
+  }
+
+  const bufferUrl = Math.min(alvo * 3, 600);
+  const links     = await coletarLinks(page, bufferUrl, emitir);
+  emitir(`🔗 ${links.length} links encontrados para "${query}"`);
+
+  for (const link of links) {
+    if (empresas.length >= alvo) break;
+
+    await pausa(1800, 4000);
+
+    try {
+      await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 25000 });
+      await pausa(900, 2000);
+
+      // Simula olhar para a tela
+      await page.mouse.move(200 + Math.random() * 600, 200 + Math.random() * 300);
+
+      const nome = await page.locator('h1').first().textContent({ timeout: 8000 }).catch(() => null);
+      if (!nome?.trim()) continue;
+
+      await pausa(300, 700);
+
+      const websiteEl   = page.locator('a[data-item-id="authority"]');
+      const websiteHref = await websiteEl.getAttribute('href', { timeout: 5000 }).catch(() => null);
+      const telefone    = await extrairTelefone(page);
+
+      let dominio = null;
+      if (websiteHref) {
+        try {
+          const url = new URL(websiteHref);
+          dominio = url.hostname.replace(/^www\./, '');
+        } catch {}
+      }
+
+      if (!dominio || dominiosVistos.has(dominio)) continue;
+      dominiosVistos.add(dominio);
+
+      empresas.push({ nome: nome.trim(), dominio, telefone: telefone || null });
+      emitir(`  ✅ ${empresas.length}. ${nome.trim()} — ${dominio}`);
+
+    } catch {}
   }
 
   return empresas;
 }
 
 async function coletarLinks(page, alvo, emitir) {
-  const links = new Set();
+  const links    = new Set();
   let semMudancas = 0;
 
   while (links.size < alvo && semMudancas < 4) {
@@ -147,18 +245,15 @@ async function coletarLinks(page, alvo, emitir) {
       semMudancas = 0;
     }
 
-    // Verifica fim da lista
     const textoFeed = await page.locator('div[role="feed"]').textContent({ timeout: 3000 }).catch(() => '');
     if (textoFeed.includes('Você chegou ao fim') || textoFeed.includes('end of the list')) break;
 
-    // Rola em incrementos variáveis — humanos não rolam sempre o mesmo tanto
     const scrollAmt = 600 + Math.floor(Math.random() * 600);
     await page.evaluate((amt) => {
       const feed = document.querySelector('div[role="feed"]');
       if (feed) feed.scrollBy(0, amt);
     }, scrollAmt);
 
-    // Pausa variável entre rolagens
     await pausa(1400, 2800);
   }
 

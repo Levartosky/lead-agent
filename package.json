@@ -9,15 +9,19 @@
     "web": "node src/server.js",
     "gemini": "node src/index-gemini.js",
     "web:gemini": "node src/server-gemini.js",
-    "rpa": "node src/index-rpa.js"
+    "rpa": "node src/index-rpa.js",
+    "importar-receita": "node src/scripts/importar-receita.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
     "@google/generative-ai": "^0.24.1",
     "axios": "latest",
+    "better-sqlite3": "latest",
     "dotenv": "latest",
     "exceljs": "latest",
     "express": "^5.2.1",
+    "iconv-lite": "latest",
+    "node-stream-zip": "latest",
     "playwright": "latest",
     "whois": "latest"
   }

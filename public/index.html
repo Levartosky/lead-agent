@@ -381,16 +381,21 @@
     <div class="mode-row">
       <span class="mode-label">Modo</span>
       <div class="mode-toggle">
-        <button class="mode-btn active" id="btnAgente" onclick="setModo('agente')">
+        <!-- Motores Agente IA e RPA temporariamente ocultos — backend continua suportando os 3 modos -->
+        <button class="mode-btn" id="btnAgente" onclick="setModo('agente')" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
           Agente IA
         </button>
-        <button class="mode-btn" id="btnRpa" onclick="setModo('rpa')">
+        <button class="mode-btn" id="btnRpa" onclick="setModo('rpa')" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
           RPA
         </button>
+        <button class="mode-btn active" id="btnReceita" onclick="setModo('receita')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+          Receita Federal
+        </button>
       </div>
-      <span class="mode-desc" id="modeDesc">Claude AI · usa tokens da API</span>
+      <span class="mode-desc" id="modeDesc">Base oficial Receita Federal · sem Maps · resultado instantâneo</span>
     </div>
     <div class="card-label">Configure sua busca</div>
     <div class="form-row">
@@ -412,7 +417,7 @@
         <label>Quantidade</label>
         <div class="inp-wrap">
           <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
-          <input id="quantidade" type="number" min="1" max="50" value="5" />
+          <input id="quantidade" type="number" min="1" max="1000" value="20" />
         </div>
       </div>
       <div class="field">
@@ -486,17 +491,20 @@
 <script>
   let sessId = null, es = null;
   let nLeads = 0, nEmail = 0, nTel = 0, nCNPJ = 0, nCPF = 0;
-  let modoAtual = 'agente';
+  let modoAtual = 'receita';
 
   /* ── Mode Toggle ── */
   function setModo(modo) {
     modoAtual = modo;
-    document.getElementById('btnAgente').classList.toggle('active', modo === 'agente');
-    document.getElementById('btnRpa').classList.toggle('active',    modo === 'rpa');
-    document.getElementById('modeDesc').textContent =
-      modo === 'rpa'
-        ? 'Google Maps + WHOIS + CNPJ · sem custo de tokens'
-        : 'Claude AI · usa tokens da API';
+    document.getElementById('btnAgente').classList.toggle('active',  modo === 'agente');
+    document.getElementById('btnRpa').classList.toggle('active',     modo === 'rpa');
+    document.getElementById('btnReceita').classList.toggle('active', modo === 'receita');
+    const descs = {
+      agente:  'Claude AI · usa tokens da API',
+      rpa:     'Google Maps + WHOIS + CNPJ · sem custo de tokens',
+      receita: 'Base oficial Receita Federal · sem Maps · resultado instantâneo',
+    };
+    document.getElementById('modeDesc').textContent = descs[modo] ?? '';
   }
 
   /* ── Status ── */

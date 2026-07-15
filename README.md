@@ -8,6 +8,9 @@ Suporta dois modelos de IA:
 
 Cada modelo pode ser usado de duas formas: pelo **terminal** ou pela **interface web** no navegador.
 
+## Como usar a interface web
+npm run web
+
 ---
 
 ## Requisitos

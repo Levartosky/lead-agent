@@ -5,17 +5,27 @@ const { consultarCnpj }                     = require('./tools/cnpj');
 const { criarGerenciadorLeads }             = require('./tools/leads');
 const { carregarHistorico, salvarHistorico } = require('./utils/historico');
 
-// WHOIS com timeout explícito — o servidor registro.br pode travar sem responder
-function whoisComTimeout(dominio, ms = 12000) {
-  return Promise.race([
-    consultarWhois(dominio),
-    new Promise(resolve =>
-      setTimeout(() => resolve({ sucesso: false, dominio, erro: 'Timeout WHOIS' }), ms)
-    )
-  ]);
+// Semáforo para limitar conexões simultâneas ao registro.br
+let whoisAtivos = 0;
+const WHOIS_MAX  = 3;
+
+async function whoisComTimeout(dominio, ms = 12000) {
+  while (whoisAtivos >= WHOIS_MAX) {
+    await new Promise(r => setTimeout(r, 150));
+  }
+  whoisAtivos++;
+  try {
+    return await Promise.race([
+      consultarWhois(dominio),
+      new Promise(resolve =>
+        setTimeout(() => resolve({ sucesso: false, dominio, erro: 'Timeout WHOIS' }), ms)
+      ),
+    ]);
+  } finally {
+    whoisAtivos--;
+  }
 }
 
-// Valida o dígito verificador do CNPJ para evitar falsos positivos (ex: telefones)
 function cnpjValido(digits) {
   if (digits.length !== 14 || /^(\d)\1+$/.test(digits)) return false;
   const calc = (d, n) => {
@@ -27,7 +37,7 @@ function cnpjValido(digits) {
   return calc(digits, 13) && calc(digits, 14);
 }
 
-// Raspa o HTML do site da empresa procurando CNPJ no rodapé / página "sobre"
+// Busca CNPJ em múltiplas URLs do site em paralelo — antes era sequencial (até 40s)
 async function extrairCnpjDoSite(dominio) {
   const CNPJ_RE = /\d{2}[.\-\s]?\d{3}[.\-\s]?\d{3}[\/\s]?\d{4}[.\-\s]?\d{2}/g;
   const urls = [
@@ -38,21 +48,44 @@ async function extrairCnpjDoSite(dominio) {
     `https://${dominio}/contato`,
   ];
 
-  for (const url of urls) {
-    try {
-      const resp = await axios.get(url, {
+  const resultados = await Promise.allSettled(
+    urls.map(url =>
+      axios.get(url, {
         timeout: 8000,
-        maxContentLength: 400000,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LeadBot/1.0)' }
-      });
-      const matches = resp.data.match(CNPJ_RE) || [];
-      for (const m of matches) {
-        const digits = m.replace(/\D/g, '');
-        if (cnpjValido(digits)) return digits;
-      }
-    } catch {}
+        maxContentLength: 400_000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LeadBot/1.0)' },
+      }).then(resp => {
+        const matches = resp.data.match(CNPJ_RE) || [];
+        for (const m of matches) {
+          const digits = m.replace(/\D/g, '');
+          if (cnpjValido(digits)) return digits;
+        }
+        return null;
+      }).catch(() => null)
+    )
+  );
+
+  for (const r of resultados) {
+    if (r.status === 'fulfilled' && r.value) return r.value;
   }
   return null;
+}
+
+// Pool de workers paralelos — substitui o for-await sequencial
+async function processarEmParalelo(items, fn, concurrency = 5) {
+  const queue = [...items];
+
+  async function worker() {
+    while (true) {
+      const item = queue.shift();
+      if (item === undefined) break;
+      await fn(item);
+    }
+  }
+
+  await Promise.allSettled(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  );
 }
 
 async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
@@ -64,12 +97,10 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
   const { salvarLead, finalizarLeads } = criarGerenciadorLeads();
   let totalSalvos = 0;
 
-  // Carrega histórico de domínios já coletados em execuções anteriores
   const historico = carregarHistorico();
   console.log(`\n📚 Histórico: ${historico.size} domínio(s) já coletado(s) anteriormente.`);
   emit('log', { mensagem: `Histórico: ${historico.size} domínio(s) já visitado(s)` });
 
-  // Etapa 1: Coletar empresas via Google Maps
   emit('log', { mensagem: 'Abrindo Google Maps...' });
   const empresas = await buscarEmpresasGoogleMaps(nicho, regiao, quantidade, (msg) => {
     console.log(msg);
@@ -82,19 +113,17 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
     return { sucesso: false, mensagem: 'Nenhuma empresa encontrada.' };
   }
 
-  console.log(`\n📋 ${empresas.length} empresa(s) coletada(s). Enriquecendo dados...\n`);
-  emit('log', { mensagem: `${empresas.length} empresa(s) coletada(s). Enriquecendo dados...` });
+  console.log(`\n📋 ${empresas.length} empresa(s) coletada(s). Enriquecendo em paralelo (5 workers)...\n`);
+  emit('log', { mensagem: `${empresas.length} empresa(s). Enriquecendo dados em paralelo...` });
 
-  // Etapa 2: Enriquecer cada empresa — WHOIS → CNPJ → fallback site
-  for (const empresa of empresas) {
-    if (totalSalvos >= quantidade) break;
+  await processarEmParalelo(empresas, async (empresa) => {
+    if (totalSalvos >= quantidade) return;
 
     try {
-      // --- Pula domínio já coletado em execução anterior ---
       if (historico.has(empresa.dominio)) {
         console.log(`   ⏭️  ${empresa.dominio} já coletado — pulando`);
         emit('log', { mensagem: `Já coletado: ${empresa.dominio} — pulando` });
-        continue;
+        return;
       }
 
       let email        = null;
@@ -103,7 +132,7 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
       let tipoRegistro = 'N/A';
       let cpfCnpj      = null;
 
-      // --- WHOIS ---
+      // --- WHOIS (limitado a 3 simultâneos pelo semáforo) ---
       const eBr = empresa.dominio.endsWith('.br');
       if (eBr) {
         console.log(`\n🔧 WHOIS → ${empresa.dominio}`);
@@ -122,11 +151,11 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
             cpfCnpj = whois.cpf  || null;
           }
         } else {
-          console.log(`   ⚠️  WHOIS falhou (${whois.erro}) — tentando extrair CNPJ do site`);
+          console.log(`   ⚠️  WHOIS falhou (${whois.erro})`);
         }
       }
 
-      // --- Lookup CNPJ via Receita Federal (se WHOIS trouxe o número) ---
+      // --- Lookup CNPJ via Receita Federal ---
       if (cpfCnpj && tipoRegistro === 'CNPJ') {
         console.log(`\n🔧 CNPJ  → ${cpfCnpj}`);
         emit('ferramenta', { nome: 'consultar_cnpj', cnpj: cpfCnpj });
@@ -139,7 +168,7 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
         }
       }
 
-      // --- Fallback: raspa CNPJ diretamente do site da empresa ---
+      // --- Fallback: raspa CNPJ do site (agora em paralelo) ---
       if (!cpfCnpj) {
         console.log(`\n🔍 Buscando CNPJ no site → ${empresa.dominio}`);
         emit('ferramenta', { nome: 'cnpj_no_site', dominio: empresa.dominio });
@@ -159,13 +188,15 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
         }
       }
 
-      // --- Qualificação mínima: lead só é salvo se tiver email E telefone ---
+      // --- Qualificação mínima ---
       if (!email || !telefone) {
         const faltando = [!email && 'email', !telefone && 'telefone'].filter(Boolean).join(' e ');
         console.log(`   ⏭️  ${empresa.nome} descartado — sem ${faltando}`);
         emit('log', { mensagem: `Descartado: ${empresa.nome} — sem ${faltando}` });
-        continue;
+        return;
       }
+
+      if (totalSalvos >= quantidade) return;
 
       // --- Salva lead ---
       const resultado = await salvarLead({
@@ -175,15 +206,13 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
         telefone,
         dominio:       empresa.dominio,
         tipo_registro: tipoRegistro,
-        cpf_cnpj:      cpfCnpj
+        cpf_cnpj:      cpfCnpj,
       });
 
       if (resultado.sucesso) {
         totalSalvos = resultado.totalLeads;
         const lead  = resultado.lead;
-        // Registra domínio no histórico para não repetir em buscas futuras
         historico.add(empresa.dominio);
-        salvarHistorico(historico);
         console.log(`\n✅ Lead #${totalSalvos}: ${lead.nomeEmpresa}`);
         emit('lead_salvo', {
           numero:       totalSalvos,
@@ -193,20 +222,19 @@ async function executarRPA(nicho, regiao, quantidade, onEvento = null) {
           telefone:     lead.telefone,
           dominio:      lead.dominio,
           tipoRegistro: lead.tipoRegistro,
-          cpfCnpj:      lead.cpfCnpj
+          cpfCnpj:      lead.cpfCnpj,
         });
       }
-
-      // Pausa entre empresas para não sobrecarregar registro.br
-      await new Promise(r => setTimeout(r, 1200));
 
     } catch (erro) {
       console.log(`\n⚠️  Erro ao processar ${empresa.dominio}: ${erro.message}`);
       emit('log', { mensagem: `Erro em ${empresa.dominio}: ${erro.message}` });
     }
-  }
+  }, 5);
 
-  // Etapa 3: Gerar planilha
+  // Salva histórico uma única vez após todo o processamento paralelo
+  salvarHistorico(historico);
+
   console.log('\n📊 Gerando planilha...');
   emit('gerando_excel', {});
 
