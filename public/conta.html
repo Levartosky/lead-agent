@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minha Conta — Lead Agent AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#07090F; --bg3:#161B24; --card:rgba(22,27,36,.85);
+      --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.13);
+      --blue:#4F8EF7; --blue-dark:#2F6FE8; --green:#34D399; --red:#F87171; --orange:#FBBF24;
+      --text:#E8EEF6; --text2:#8892A0; --text3:#3D4550;
+      --font:'Inter',system-ui,sans-serif;
+      --shadow:0 0 0 1px rgba(255,255,255,.05), 0 12px 40px rgba(0,0,0,.5);
+    }
+    html, body { min-height:100%; font-family:var(--font); background:var(--bg); color:var(--text); font-size:14px; line-height:1.5; }
+    body::before {
+      content:''; position:fixed; inset:0; pointer-events:none;
+      background:radial-gradient(ellipse 90% 55% at 50% -10%, rgba(79,142,247,.09), transparent 60%);
+    }
+    .app { position:relative; z-index:1; max-width:860px; margin:0 auto; padding:28px 24px 60px; display:flex; flex-direction:column; gap:16px; }
+    .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .brand-icon {
+      width:40px; height:40px; border-radius:11px;
+      background:linear-gradient(135deg,var(--blue-dark),#A78BFA);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 0 24px rgba(79,142,247,.35); font-size:20px;
+    }
+    .brand h1 { font-size:17px; font-weight:800; letter-spacing:-.3px; }
+    .header-actions { display:flex; gap:10px; }
+    .pill {
+      display:inline-flex; align-items:center; gap:7px; padding:8px 16px;
+      background:var(--bg3); border:1px solid var(--border); border-radius:100px;
+      font-size:12.5px; font-weight:500; color:var(--text2); cursor:pointer;
+      text-decoration:none; font-family:var(--font); transition:all .18s;
+    }
+    .pill:hover { color:var(--text); border-color:var(--border2); }
+    .card {
+      background:var(--card); border:1px solid var(--border); border-radius:12px;
+      backdrop-filter:blur(16px); box-shadow:var(--shadow); padding:22px 26px;
+    }
+    .card-label { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.8px; margin-bottom:16px; }
+    .conta-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 28px; }
+    .dado .k { font-size:11.5px; color:var(--text2); margin-bottom:3px; }
+    .dado .v { font-size:14.5px; font-weight:600; }
+    .plano-tag {
+      display:inline-flex; padding:3px 12px; border-radius:100px;
+      font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
+    }
+    .plano-tag.free    { background:rgba(136,146,160,.14); color:var(--text2); border:1px solid rgba(136,146,160,.3); }
+    .plano-tag.premium { background:rgba(52,211,153,.12);  color:var(--green); border:1px solid rgba(52,211,153,.3); }
+    .plano-tag.admin   { background:rgba(251,191,36,.12);  color:var(--orange); border:1px solid rgba(251,191,36,.3); }
+    .saldo-big { font-size:34px; font-weight:800; letter-spacing:-1px; color:var(--green); line-height:1; }
+    .saldo-big small { font-size:13px; font-weight:500; color:var(--text2); letter-spacing:0; margin-left:6px; }
+    table { width:100%; border-collapse:collapse; }
+    th { padding:8px 10px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); }
+    td { padding:9px 10px; border-bottom:1px solid rgba(255,255,255,.04); font-size:12.5px; }
+    .delta-pos { color:var(--green); font-weight:700; }
+    .delta-neg { color:var(--red);   font-weight:700; }
+    .muted { color:var(--text2); }
+    .vazio { color:var(--text3); font-size:12.5px; padding:14px 10px; }
+    @media (max-width:640px){ .conta-grid { grid-template-columns:1fr; } .app { padding:18px 14px 40px; } }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <h1>Minha Conta</h1>
+    </div>
+    <div class="header-actions">
+      <a class="pill" href="/">← Voltar ao app</a>
+      <button class="pill" onclick="sair()">Sair</button>
+    </div>
+  </header>
+
+  <!-- Dados da conta (história 1.5) -->
+  <section class="card">
+    <div class="card-label">Dados da conta</div>
+    <div class="conta-grid">
+      <div class="dado"><div class="k">Email</div><div class="v" id="cEmail">…</div></div>
+      <div class="dado"><div class="k">Cadastro em</div><div class="v" id="cCriado">…</div></div>
+      <div class="dado"><div class="k">Plano atual</div><div class="v"><span class="plano-tag free" id="cPlano">…</span></div></div>
+      <div class="dado"><div class="k">Saldo de créditos</div><div class="saldo-big" id="cSaldo">–<small>1 crédito = 1 lead</small></div></div>
+    </div>
+  </section>
+
+  <!-- Extrato de créditos -->
+  <section class="card">
+    <div class="card-label">Extrato de créditos</div>
+    <div id="extratoWrap"><div class="vazio">Carregando…</div></div>
+  </section>
+
+  <!-- Histórico de buscas -->
+  <section class="card">
+    <div class="card-label">Histórico de buscas</div>
+    <div id="historicoWrap"><div class="vazio">Carregando…</div></div>
+  </section>
+</div>
+
+<script src="/config.js"></script>
+<script src="/vendor/supabase.js"></script>
+<script src="/js/auth.js"></script>
+<script>
+  const fmtData = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+  const fmtDataHora = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+  const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const MOTIVOS = { trial:'Créditos de teste', compra:'Compra de pacote', consumo:'Geração de leads', estorno:'Estorno', ajuste:'Ajuste' };
+  const STATUS_BUSCA = { executando:'Executando…', concluida:'Concluída', erro:'Erro' };
+
+  (async () => {
+    const session = await exigirSessao();
+    if (!session) return;
+
+    // Dados do /api/me (backend calcula plano e saldo)
+    try {
+      const me = await (await authFetch('/api/me')).json();
+      document.getElementById('cEmail').textContent  = me.email;
+      document.getElementById('cCriado').textContent = fmtData(me.criadoEm);
+      const plano = me.role === 'admin' ? 'admin' : me.plano;
+      const tag = document.getElementById('cPlano');
+      tag.textContent = plano;
+      tag.className = `plano-tag ${plano}`;
+      document.getElementById('cSaldo').innerHTML = `${me.saldo}<small>1 crédito = 1 lead</small>`;
+    } catch {}
+
+    // Extrato e histórico direto do Supabase — a RLS garante que só vêm as linhas do próprio usuário
+    const [{ data: extrato }, { data: buscas }] = await Promise.all([
+      sb.from('credit_ledger').select('delta, motivo, criado_em').order('criado_em', { ascending:false }).limit(20),
+      sb.from('searches').select('nicho, regiao, qtd_solicitada, qtd_entregue, status, criado_em').order('criado_em', { ascending:false }).limit(20),
+    ]);
+
+    document.getElementById('extratoWrap').innerHTML = (extrato && extrato.length)
+      ? `<table><thead><tr><th>Data</th><th>Descrição</th><th style="text-align:right">Créditos</th></tr></thead><tbody>` +
+        extrato.map(l => `<tr>
+            <td class="muted">${fmtDataHora(l.criado_em)}</td>
+            <td>${esc(MOTIVOS[l.motivo] ?? l.motivo)}</td>
+            <td style="text-align:right" class="${l.delta >= 0 ? 'delta-pos' : 'delta-neg'}">${l.delta >= 0 ? '+' : ''}${l.delta}</td>
+          </tr>`).join('') + `</tbody></table>`
+      : `<div class="vazio">Nenhuma movimentação ainda — confirme seu email para receber os créditos de teste.</div>`;
+
+    document.getElementById('historicoWrap').innerHTML = (buscas && buscas.length)
+      ? `<table><thead><tr><th>Data</th><th>Nicho</th><th>Região</th><th>Solicitado</th><th>Entregue</th><th>Status</th></tr></thead><tbody>` +
+        buscas.map(b => `<tr>
+            <td class="muted">${fmtDataHora(b.criado_em)}</td>
+            <td>${esc(b.nicho)}</td>
+            <td>${esc(b.regiao)}</td>
+            <td>${b.qtd_solicitada}</td>
+            <td>${b.qtd_entregue ?? '—'}</td>
+            <td class="muted">${STATUS_BUSCA[b.status] ?? b.status}</td>
+          </tr>`).join('') + `</tbody></table>`
+      : `<div class="vazio">Nenhuma busca realizada ainda.</div>`;
+  })();
+</script>
+</body>
+</html>

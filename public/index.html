@@ -84,6 +84,11 @@
       transition: all 0.3s;
     }
 
+    .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .user-pill { cursor: pointer; text-decoration: none; font-family: var(--font); }
+    .user-pill:hover { color: var(--text); border-color: var(--border2); }
+    .saldo-pill { color: var(--green); border-color: rgba(52,211,153,.25); font-weight: 600; }
+
     .dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: var(--text3); flex-shrink: 0;
@@ -370,9 +375,14 @@
         <p>Geração inteligente de leads B2B no Brasil</p>
       </div>
     </div>
-    <div class="status-pill" id="pill">
-      <div class="dot" id="dot"></div>
-      <span id="pillText">Aguardando</span>
+    <div class="header-right">
+      <div class="status-pill" id="pill">
+        <div class="dot" id="dot"></div>
+        <span id="pillText">Aguardando</span>
+      </div>
+      <a class="status-pill user-pill saldo-pill" href="/conta.html" title="Ver extrato de créditos">💎 <span id="saldoVal">–</span></a>
+      <a class="status-pill user-pill" href="/conta.html" title="Minha Conta">👤 <span id="userEmail">…</span></a>
+      <button class="status-pill user-pill" onclick="sair()">Sair</button>
     </div>
   </header>
 
@@ -488,10 +498,28 @@
 
 </div>
 
+<script src="/config.js"></script>
+<script src="/vendor/supabase.js"></script>
+<script src="/js/auth.js"></script>
 <script>
   let sessId = null, es = null;
   let nLeads = 0, nEmail = 0, nTel = 0, nCNPJ = 0, nCPF = 0;
   let modoAtual = 'receita';
+
+  /* ── Sessão obrigatória: sem login, volta para /login.html ── */
+  (async () => {
+    const sessao = await exigirSessao();
+    if (!sessao) return;
+    document.getElementById('userEmail').textContent = sessao.user.email;
+    atualizarSaldo();
+  })();
+
+  async function atualizarSaldo() {
+    try {
+      const me = await (await authFetch('/api/me')).json();
+      document.getElementById('saldoVal').textContent = `${me.saldo} crédito${me.saldo === 1 ? '' : 's'}`;
+    } catch {}
+  }
 
   /* ── Mode Toggle ── */
   function setModo(modo) {
@@ -623,7 +651,7 @@
     setStatus('running');
 
     try {
-      const res  = await fetch('/api/iniciar', {
+      const res  = await authFetch('/api/iniciar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nicho, regiao, quantidade, modo: modoAtual })
@@ -631,7 +659,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.erro || 'Erro desconhecido');
       sessId = data.sessionId;
-      conectar(sessId);
+      await conectar(sessId);
     } catch (err) {
       setRunning(false);
       setStatus('error');
@@ -640,8 +668,10 @@
   }
 
   /* ── SSE ── */
-  function conectar(sid) {
-    es = new EventSource(`/api/eventos/${sid}`);
+  async function conectar(sid) {
+    // EventSource não envia headers — o token vai por query string
+    const token = await tokenAtual();
+    es = new EventSource(`/api/eventos/${sid}?token=${encodeURIComponent(token)}`);
 
     es.onmessage = ({ data }) => {
       const { tipo, dados, ts } = JSON.parse(data);
@@ -673,6 +703,7 @@
           addLog('lead', '🎉',
             `Busca concluída! <strong>${dados.totalLeads}</strong> lead(s) capturado(s).`, ts);
           showSummary(dados.arquivo);
+          atualizarSaldo();
           es.close(); es = null;
           break;
         case 'erro':
@@ -693,8 +724,11 @@
   }
 
   /* ── Download ── */
-  function baixar() {
-    if (sessId) window.location.href = `/api/download/${sessId}`;
+  async function baixar() {
+    if (!sessId) return;
+    // location.href não envia headers — o token vai por query string
+    const token = await tokenAtual();
+    window.location.href = `/api/download/${sessId}?token=${encodeURIComponent(token)}`;
   }
 </script>
 </body>

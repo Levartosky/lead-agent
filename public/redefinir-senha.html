@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Redefinir senha — Lead Agent AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#07090F; --card:rgba(22,27,36,.85);
+      --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.13);
+      --blue:#4F8EF7; --blue-dark:#2F6FE8; --blue-glow:rgba(79,142,247,.18);
+      --green:#34D399; --red:#F87171; --text:#E8EEF6; --text2:#8892A0; --text3:#3D4550;
+      --font:'Inter',system-ui,sans-serif;
+      --shadow:0 0 0 1px rgba(255,255,255,.05), 0 12px 40px rgba(0,0,0,.5);
+    }
+    html, body { min-height:100%; font-family:var(--font); background:var(--bg); color:var(--text); font-size:14px; line-height:1.5; }
+    body::before {
+      content:''; position:fixed; inset:0; pointer-events:none;
+      background:radial-gradient(ellipse 90% 55% at 50% -10%, rgba(79,142,247,.09), transparent 60%);
+    }
+    .wrap { position:relative; z-index:1; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 16px; gap:22px; }
+    .brand { display:flex; align-items:center; gap:14px; }
+    .brand-icon {
+      width:46px; height:46px; border-radius:12px;
+      background:linear-gradient(135deg,var(--blue-dark),#A78BFA);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 0 24px rgba(79,142,247,.35); font-size:23px;
+    }
+    .brand h1 { font-size:20px; font-weight:800; letter-spacing:-.4px; }
+    .card {
+      width:100%; max-width:400px;
+      background:var(--card); border:1px solid var(--border); border-radius:14px;
+      backdrop-filter:blur(16px); box-shadow:var(--shadow); padding:28px;
+    }
+    .card h2 { font-size:16px; font-weight:700; margin-bottom:18px; }
+    .field { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+    .field label { font-size:12px; font-weight:500; color:var(--text2); }
+    .field input {
+      width:100%; padding:11px 13px; background:rgba(255,255,255,.04);
+      border:1px solid var(--border2); border-radius:8px;
+      color:var(--text); font-family:var(--font); font-size:14px; outline:none;
+      transition:border-color .2s, box-shadow .2s;
+    }
+    .field input:focus { border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-glow); }
+    .hint { font-size:11px; color:var(--text3); }
+    .btn {
+      width:100%; height:44px; border:none; border-radius:8px;
+      background:linear-gradient(135deg,var(--blue-dark) 0%,#7C3AED 100%);
+      color:#fff; font-family:var(--font); font-size:14px; font-weight:600; cursor:pointer;
+      box-shadow:0 4px 16px rgba(79,142,247,.3); transition:opacity .2s;
+      display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    }
+    .btn:hover:not(:disabled){ opacity:.9; } .btn:disabled { opacity:.4; cursor:not-allowed; }
+    .msg { display:none; border-radius:8px; padding:11px 13px; font-size:13px; margin-bottom:16px; }
+    .msg.show { display:block; }
+    .msg.erro    { background:rgba(248,113,113,.1); border:1px solid rgba(248,113,113,.3); color:var(--red); }
+    .msg.sucesso { background:rgba(52,211,153,.1); border:1px solid rgba(52,211,153,.3); color:var(--green); }
+    .links { text-align:center; margin-top:16px; font-size:12.5px; }
+    .links a { color:var(--text2); text-decoration:none; }
+    .links a:hover { color:var(--blue); }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .spinner { width:15px; height:15px; animation:spin .9s linear infinite; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="brand-icon">⚡</div>
+    <h1>Lead Agent AI</h1>
+  </div>
+
+  <div class="card">
+    <h2>Escolha sua nova senha</h2>
+    <div class="msg" id="msg"></div>
+    <form id="form" onsubmit="salvar(event)">
+      <div class="field">
+        <label>Nova senha</label>
+        <input type="password" id="senha" autocomplete="new-password" minlength="8" required />
+        <span class="hint">Mínimo de 8 caracteres</span>
+      </div>
+      <div class="field">
+        <label>Confirmar nova senha</label>
+        <input type="password" id="senha2" autocomplete="new-password" minlength="8" required />
+      </div>
+      <button class="btn" id="btnSalvar" type="submit">Salvar nova senha</button>
+    </form>
+    <div class="links"><a href="/login.html">← Voltar para o login</a></div>
+  </div>
+</div>
+
+<script src="/config.js"></script>
+<script src="/vendor/supabase.js"></script>
+<script src="/js/auth.js"></script>
+<script>
+  function mostrarMsg(tipo, texto) {
+    const el = document.getElementById('msg');
+    el.className = `msg show ${tipo}`;
+    el.textContent = texto;
+  }
+
+  /* O link de recuperação (uso único, com expiração — nativo do Supabase)
+     redireciona para cá com uma sessão temporária no URL. Sem ela, o link
+     é inválido/expirado e o formulário fica bloqueado. */
+  (async () => {
+    if (!supabaseDisponivel()) {
+      mostrarMsg('erro', 'O servidor ainda não tem as chaves do Supabase configuradas.');
+      document.getElementById('form').style.display = 'none';
+      return;
+    }
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const session = hashParams.get('error_description') ? null : await sessaoAtual();
+    if (!session) {
+      mostrarMsg('erro', 'Link inválido ou expirado. Solicite um novo em "Esqueci minha senha".');
+      document.getElementById('form').style.display = 'none';
+    }
+  })();
+
+  async function salvar(ev) {
+    ev.preventDefault();
+    const senha  = document.getElementById('senha').value;
+    const senha2 = document.getElementById('senha2').value;
+    if (senha.length < 8) return mostrarMsg('erro', 'A senha deve ter no mínimo 8 caracteres.');
+    if (senha !== senha2) return mostrarMsg('erro', 'As senhas não conferem.');
+
+    const btn = document.getElementById('btnSalvar');
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>Salvando…`;
+
+    const { error } = await sb.auth.updateUser({ password: senha });
+    btn.disabled = false;
+    btn.textContent = 'Salvar nova senha';
+
+    if (error) {
+      const m = (error.message || '').toLowerCase();
+      if (m.includes('should be different')) return mostrarMsg('erro', 'A nova senha precisa ser diferente da atual.');
+      return mostrarMsg('erro', 'Não foi possível salvar. O link pode ter expirado — solicite um novo.');
+    }
+    mostrarMsg('sucesso', 'Senha alterada com sucesso! Entrando…');
+    setTimeout(() => { location.href = '/'; }, 1200);
+  }
+</script>
+</body>
+</html>
