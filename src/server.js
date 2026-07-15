@@ -4,26 +4,23 @@ const path    = require('path');
 const { executarAgente }  = require('./agent');
 const { executarRPA }     = require('./rpa');
 const { executarReceita } = require('./executor-receita');
+const { helmetMiddleware, corsMiddleware, limiteApi } = require('./middleware/seguranca');
+const { validar } = require('./middleware/validar');
+const { iniciarBodySchema, sessionIdParamSchema } = require('./validation/schemas');
 
 const app = express();
-app.use(express.json());
+app.use(helmetMiddleware);
+app.use(corsMiddleware);
+app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/api', limiteApi);
 
 // Sessões ativas: guardam eventos emitidos e clientes SSE conectados
 const sessoes = new Map();
 
 /* ── POST /api/iniciar ── inicia o agente ou RPA e retorna sessionId */
-app.post('/api/iniciar', (req, res) => {
-  const { nicho, regiao, quantidade, modo = 'agente' } = req.body;
-
-  if (!nicho?.trim() || !regiao?.trim() || !quantidade) {
-    return res.status(400).json({ erro: 'Preencha todos os campos.' });
-  }
-
-  const qty = parseInt(quantidade, 10);
-  if (isNaN(qty) || qty < 1 || qty > 1000) {
-    return res.status(400).json({ erro: 'Quantidade deve ser entre 1 e 1000.' });
-  }
+app.post('/api/iniciar', validar(iniciarBodySchema, 'body'), (req, res) => {
+  const { nicho, regiao, quantidade: qty, modo } = req.body;
 
   if (modo === 'agente' && (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'sua_chave_aqui')) {
     return res.status(400).json({ erro: 'ANTHROPIC_API_KEY não configurada no .env — use o modo RPA.' });
@@ -47,7 +44,7 @@ app.post('/api/iniciar', (req, res) => {
                  : modo === 'rpa'     ? executarRPA
                  : executarAgente;
 
-  executor(nicho.trim(), regiao.trim(), qty, emit)
+  executor(nicho, regiao, qty, emit)
     .then(resultado => {
       const sessao = sessoes.get(sessionId);
       if (sessao && resultado?.arquivo) sessao.arquivo = resultado.arquivo;
@@ -59,7 +56,7 @@ app.post('/api/iniciar', (req, res) => {
 });
 
 /* ── GET /api/eventos/:id ── stream SSE */
-app.get('/api/eventos/:id', (req, res) => {
+app.get('/api/eventos/:id', validar(sessionIdParamSchema, 'params'), (req, res) => {
   const sessao = sessoes.get(req.params.id);
   if (!sessao) return res.status(404).end();
 
@@ -77,7 +74,7 @@ app.get('/api/eventos/:id', (req, res) => {
 });
 
 /* ── GET /api/download/:id ── baixa o Excel gerado */
-app.get('/api/download/:id', (req, res) => {
+app.get('/api/download/:id', validar(sessionIdParamSchema, 'params'), (req, res) => {
   const sessao = sessoes.get(req.params.id);
   if (!sessao?.arquivo) return res.status(404).json({ erro: 'Arquivo não encontrado.' });
   res.download(sessao.arquivo);

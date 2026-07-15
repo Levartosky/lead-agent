@@ -20,12 +20,16 @@
     "@google/generative-ai": "^0.24.1",
     "axios": "latest",
     "better-sqlite3": "latest",
+    "cors": "^2.8.6",
     "dotenv": "latest",
     "exceljs": "latest",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.3.0",
     "iconv-lite": "latest",
     "node-stream-zip": "latest",
     "playwright": "latest",
-    "whois": "latest"
+    "whois": "latest",
+    "zod": "^4.4.3"
   }
 }

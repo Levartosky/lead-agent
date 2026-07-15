@@ -74,6 +74,11 @@ lead-agent/
 │   │   └── detectar-emails-genericos.js # Gera tabela emails_genericos (filtro de qualidade)
 │   ├── config/
 │   │   └── sinonimos-cnae.js  # Dicionário nicho → raiz de CNAE (18 validados + 34 pendentes)
+│   ├── middleware/
+│   │   ├── seguranca.js       # Helmet, CORS restrito, rate limit (história 4.1)
+│   │   └── validar.js         # Middleware genérico de validação zod (história 4.2)
+│   ├── validation/
+│   │   └── schemas.js         # Schemas zod das rotas (história 4.2)
 │   ├── tools/
 │   │   ├── receita.js         # ⭐ Query SQLite: sinônimos + CNAE + município + filtros de qualidade
 │   │   ├── maps.js            # Scraping Google Maps (Playwright + stealth)
@@ -136,6 +141,26 @@ Tudo isso foi testado de ponta a ponta com um banco SQLite fake (schema idêntic
 ### Sinônimos de nicho
 
 Dicionário extraído para [src/config/sinonimos-cnae.js](src/config/sinonimos-cnae.js) (história 3.3, 2026-07-15) — antes vivia inline em `receita.js`. Traduz termo coloquial → raiz que aparece na descrição do CNAE: `dentista→ODONTOL`, `médico→MEDIC`, `advogado→ADVOCA`, `contador→CONTAB`, `academia→CONDICIONAMENTO FISICO`, `farmácia→FARMAC`, etc. Além disso há um stemming simples (corta 2 chars finais de palavras > 6 letras) e sugestão de termos parecidos via distância de Levenshtein quando nenhum CNAE bate.
+
+---
+
+## 5.1 Segurança — Hardening HTTP e validação de entrada (histórias 4.1/4.2, 2026-07-15)
+
+### Hardening HTTP básico ([src/middleware/seguranca.js](src/middleware/seguranca.js))
+- **Helmet**: headers de segurança padrão (CSP, HSTS, X-Frame-Options, X-Content-Type-Options etc.) em toda resposta.
+- **CORS restrito**: só aceita `origin` igual à variável de ambiente `APP_ORIGIN` (default `http://localhost:3000` em dev). **Definir `APP_ORIGIN` no `.env` de produção** quando o domínio final existir (ver Épico 7.3).
+- **Limite de payload**: `express.json({ limit: '10kb' })` — corpo maior que isso recebe `413` antes mesmo de chegar na lógica de negócio.
+- **Rate limit**: 100 requisições/minuto por IP, aplicado só em `/api/*` (não trava o carregamento de assets estáticos da SPA). Primeira barreira, grossa — limite por usuário autenticado é a história 4.3, que depende do Épico 0/1.
+
+### Validação de entrada ([src/validation/schemas.js](src/validation/schemas.js) + [src/middleware/validar.js](src/middleware/validar.js))
+- Schemas **zod** para `POST /api/iniciar` (nicho, região, quantidade, modo) e para o parâmetro `:id` de `/api/eventos/:id` e `/api/download/:id`.
+- Erro de validação → `400` com `{ erro, detalhes: [{ campo, mensagem }] }`, um item por campo inválido.
+- `quantidade` é coagida de string pra number automaticamente (`z.coerce.number()`); `modo` tem allowlist estrita (`agente`/`rpa`/`receita`) — um valor fora disso já não passa da validação, então o roteamento de executor em `server.js` nunca recebe modo inesperado.
+- **Confirmado**: todas as queries SQL do projeto (em `receita.js`, `importar-receita.js`, `detectar-emails-genericos.js`, `validar-sinonimos.js`) já usavam `?` parametrizado antes desta história — nenhuma interpolação direta de input do usuário em SQL foi encontrada na varredura feita para fechar esta história.
+
+Testado manualmente de ponta a ponta (headers presentes, erros 400 com mensagem por campo, payload grande rejeitado com 413, rate limit ativando em ~100 req/min) além de 10 testes automatizados em `test/validacao.test.js`.
+
+**Nota de dependências**: `npm audit fix` (sem `--force`) resolveu 3 das 5 vulnerabilidades pré-existentes nas dependências transitivas antigas (form-data, qs, tmp). Resta uma (`uuid`, via `exceljs`) que só se resolve com downgrade do `exceljs` — deixada de lado por ora por ser breaking change, não introduzida por esta história.
 
 O arquivo é dividido em dois grupos:
 - `SINONIMOS_VALIDADOS` — os 18 originais, **validados contra o banco** em 2026-07-13.
