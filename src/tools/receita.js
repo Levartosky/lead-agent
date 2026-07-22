@@ -123,9 +123,7 @@ function buscarLeadsReceita(nicho, regiao, quantidade) {
     // 3. Query principal — usa idx_cnae_uf_mun
     // JOIN com empresas: empresas.cnpj_basico tem aspas ex: '"41273589"'
     // mas estabelecimentos.cnpj_basico é limpo "41273589"
-    const cnaePH = cnaeCodigos.map(() => '?').join(',');
-    const munPH  = nomesMunicipio.map(() => '?').join(',');
-    const params = [...cnaeCodigos];
+    const munPH = nomesMunicipio.map(() => '?').join(',');
 
     // Emails genéricos (ex.: contador que registra o mesmo email em centenas
     // de CNPJs de clientes) só são filtrados se a tabela auxiliar já tiver
@@ -155,18 +153,38 @@ function buscarLeadsReceita(nicho, regiao, quantidade) {
       FROM estabelecimentos e
       LEFT JOIN empresas em ON em.cnpj_basico = '"' || e.cnpj_basico || '"'
       LEFT JOIN cnaes c ON c.codigo = e.cnae
-      WHERE e.cnae IN (${cnaePH})
+      WHERE e.cnae = ?
         AND e.matriz = 1
         AND telefone_valido(e.telefone) = 1
     `;
 
-    if (uf) { sql += ' AND e.uf = ?'; params.push(uf); }
-    if (nomesMunicipio.length > 0) { sql += ` AND e.municipio IN (${munPH})`; params.push(...nomesMunicipio); }
-    if (temEmailsGenericos) { sql += ' AND e.email NOT IN (SELECT email FROM emails_genericos)'; }
+    if (uf) sql += ' AND e.uf = ?';
+    if (nomesMunicipio.length > 0) sql += ` AND e.municipio IN (${munPH})`;
+    if (temEmailsGenericos) sql += ' AND e.email NOT IN (SELECT email FROM emails_genericos)';
     sql += ' LIMIT ?';
-    params.push(quantidade);
 
-    const leads = db.prepare(sql).all(...params);
+    // Uma query por CNAE (em vez de um único WHERE cnae IN (...) com LIMIT):
+    // quando o nicho digitado casa com várias atividades diferentes (ex.:
+    // "petshop" bate em canil/criação E em varejo de pet shop), um único
+    // LIMIT sem ORDER BY sempre esgotava o CNAE de código numericamente menor
+    // primeiro. Buscando até `quantidade` por CNAE e intercalando os lotes
+    // round-robin garante uma amostra representativa de todas as atividades.
+    const stmt = db.prepare(sql);
+    const porCnae = cnaeCodigos.map(codigo => {
+      const params = [codigo];
+      if (uf) params.push(uf);
+      if (nomesMunicipio.length > 0) params.push(...nomesMunicipio);
+      params.push(quantidade);
+      return stmt.all(...params);
+    });
+
+    const leads = [];
+    for (let i = 0; leads.length < quantidade && porCnae.some(lote => lote.length > i); i++) {
+      for (const lote of porCnae) {
+        if (leads.length >= quantidade) break;
+        if (lote[i]) leads.push(lote[i]);
+      }
+    }
 
     if (leads.length === 0) {
       return {
